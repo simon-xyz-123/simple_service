@@ -17,7 +17,7 @@ def get_seq() -> int:
     hands_played = int(os.getenv("HANDS_PLAYED", "0"))
     return poker_table_id * 100 + hands_played + 1 + 65535
 
-async def send_tcp_message_async(message: dict, timeout: float = 15.0) -> tuple[bool, str, str] | None:
+async def send_tcp_message_async(message: dict, timeout: float = 60.0) -> tuple[bool, str, str] | None:
     try:
         host = os.getenv("HOST_QS", "127.0.0.1")
         port = int(os.getenv("PORT_QS", "12345"))
@@ -31,14 +31,15 @@ async def send_tcp_message_async(message: dict, timeout: float = 15.0) -> tuple[
 
     try:
         seq = get_seq()
-        raw_json = json.dumps(message, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+        print("seq:",seq)
+        raw_json = (json.dumps(message, separators=(',', ':'), ensure_ascii=False)+"\n").encode('utf-8')
 
         # 添加序列号到前4字节
-        data_with_seq = struct.pack('<I', seq) + raw_json
+        data_with_seq = struct.pack('>I', seq) + raw_json
         compressed = compress_data(data_with_seq)
 
         # 包装成 size(int32) + 数据格式
-        data_to_send = struct.pack('<I', len(compressed)) + compressed
+        data_to_send = struct.pack('>I', len(compressed)) + compressed
 
         print(f"[INFO] Sending message with seq={seq}, size={len(data_to_send)}")
         writer.write(data_to_send)
@@ -46,12 +47,13 @@ async def send_tcp_message_async(message: dict, timeout: float = 15.0) -> tuple[
 
         print(f"[INFO] Waiting for response")
         size_data = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
-        size = struct.unpack('<I', size_data)[0]
-
+        print(f"size_data={size_data}")
+        size = struct.unpack('>I', size_data)[0]
+        print(f"size={size}")
         compressed_reply = await asyncio.wait_for(reader.readexactly(size), timeout=timeout)
         decompressed = decompress_data(compressed_reply)
 
-        reply_seq = struct.unpack('<I', decompressed[:4])[0]
+        reply_seq = struct.unpack('>I', decompressed[:4])[0]
         reply_json = decompressed[4:].decode('utf-8')
 
         print(f"[INFO] Received response with seq={reply_seq}")
